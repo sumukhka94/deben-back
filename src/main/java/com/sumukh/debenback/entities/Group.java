@@ -1,6 +1,8 @@
 package com.sumukh.debenback.entities;
 
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -8,6 +10,8 @@ import java.util.List;
 
 @Entity
 @Table(name = "`groups`")
+@Getter
+@Setter
 public class Group {
 
     @Id
@@ -16,6 +20,9 @@ public class Group {
 
     @Column(nullable = false, length = 100)
     private String name;
+
+    @Column(nullable = false, length = 100)
+    private String description;
 
     @ManyToOne
     @JoinColumn(name = "created_by")
