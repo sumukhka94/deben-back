@@ -1,11 +1,20 @@
 package com.sumukh.debenback.entities;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
 @Table(name = "expenses")
+@Getter
+@Setter
+@AllArgsConstructor
+@NoArgsConstructor
 public class Expense {
 
     @Id
@@ -15,6 +24,9 @@ public class Expense {
     @ManyToOne
     @JoinColumn(name = "group_id")
     private Group group;
+
+    @Column(length = 120)
+    private String title;
 
     @Column(length = 255)
     private String description;

@@ -1,9 +1,17 @@
 package com.sumukh.debenback.entities;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "expense_splits")
+@Getter
+@Setter
+@AllArgsConstructor
+@NoArgsConstructor
 public class ExpenseSplit {
 
     @EmbeddedId
