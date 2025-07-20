@@ -8,8 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -17,108 +16,111 @@ import java.util.stream.Collectors;
 public class GroupDetailService {
     private final GroupRepository groupRepository;
     private final ExpenseRepository expenseRepository;
-    private final ExpensePayerRepository expensePayerRepository;
-    private final ExpenseSplitRepository expenseSplitRepository;
     private final SettlementRepository settlementRepository;
 
     public GroupDetailDto getGroupDetail(Long groupId) {
-        Group group = groupRepository.findByIdWithMembers(groupId).orElseThrow(() -> new EntityNotFoundException("Group with id " + groupId + " not found"));
-
-        List<MemberBalanceDto> members = buildMemberBalances(groupId);
-
-        List<Expense> expenses = expenseRepository.findByGroupIdOrderByPaidAtDesc(groupId);
-        List<ExpenseDto> expenseDtos = buildExpenseDtos(expenses);
-
-        List<SettlementDto> settlements = mapSettlements(group);
+        Group group = groupRepository.findByIdWithMembers(groupId)
+            .orElseThrow(() -> new EntityNotFoundException("Group not found"));
 
         return new GroupDetailDto(
-                group.getId(),
-                group.getName(),
-                group.getDescription(),
-                members,
-                expenseDtos,
-                settlements
+            group.getId(),
+            group.getName(),
+            group.getDescription(),
+            calculateBalances(group),
+            getExpenses(groupId),
+            getSettlements(groupId)
         );
     }
-    private List<MemberBalanceDto> buildMemberBalances(Long groupId) {
-        List<Object[]> rows = groupRepository.computeMemberBalances(groupId);
-        return rows.stream().map(r -> {
-            Long userId = ((Number) r[0]).longValue();
-            String name = (String) r[1];
-            double paid = ((Number) r[2]).doubleValue();
-            double share = ((Number) r[3]).doubleValue();
-            double balance = paid - share;
-            return new MemberBalanceDto(userId, name, "/placeholder.svg?height=40&width=40", balance);
-        }).toList();
+
+    private List<MemberBalanceDto> calculateBalances(Group group) {
+        Map<Long, String> memberNames = group.getMembers().stream()
+            .collect(Collectors.toMap(User::getId, User::getName));
+        
+        Map<Long, Double> balances = new HashMap<>();
+        memberNames.keySet().forEach(id -> balances.put(id, 0.0));
+
+        // Calculate from expenses
+        List<Expense> expenses = expenseRepository.findByGroupId(group.getId());
+        for (Expense expense : expenses) {
+            // Add what members paid
+            for (ExpensePayer payer : expense.getPayers()) {
+                Long userId = payer.getUser().getId();
+                balances.put(userId, balances.get(userId) + payer.getAmountPaid());
+            }
+            // Subtract what members owe
+            for (ExpenseSplit split : expense.getSplits()) {
+                Long userId = split.getUser().getId();
+                balances.put(userId, balances.get(userId) - split.getAmountOwed());
+            }
+        }
+
+        // Apply settlements
+        List<Settlement> settlements = settlementRepository.findByGroupIdOrderBySettledAtDesc(group.getId());
+        for (Settlement settlement : settlements) {
+            double amount = settlement.getAmount().doubleValue();
+            Long payerId = settlement.getFromUser().getId();
+            Long receiverId = settlement.getToUser().getId();
+            
+            // When you pay: your debt reduces (balance increases)
+            balances.put(payerId, balances.get(payerId) + amount);
+            // When you receive: you're owed less (balance decreases)
+            balances.put(receiverId, balances.get(receiverId) - amount);
+        }
+
+        return memberNames.entrySet().stream()
+            .map(entry -> new MemberBalanceDto(
+                entry.getKey(),
+                entry.getValue(),
+                "/placeholder.svg?height=40&width=40",
+                balances.get(entry.getKey())
+            ))
+            .collect(Collectors.toList());
     }
-    private List<ExpenseDto> buildExpenseDtos(List<Expense> expenses) {
-        if (expenses.isEmpty()) return List.of();
 
-        List<Long> ids = expenses.stream().map(Expense::getId).toList();
+    private List<ExpenseDto> getExpenses(Long groupId) {
+        List<Expense> expenses = expenseRepository.findByGroupIdOrderByPaidAtDesc(groupId);
+        DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE;
 
-        // batch load payers & splits
-        List<ExpensePayer> payers = expensePayerRepository.findByExpenseIds(ids);
-        List<ExpenseSplit> splits = expenseSplitRepository.findSplitsByExpenseIds(ids);
+        return expenses.stream().map(expense -> {
+            List<PaidByDto> paidBy = expense.getPayers().stream()
+                .map(p -> new PaidByDto(p.getUser().getId(), p.getAmountPaid()))
+                .collect(Collectors.toList());
 
-        // index them
-        Map<Long, List<ExpensePayer>> payersByExpense =
-                payers.stream().collect(Collectors.groupingBy(ep -> ep.getExpense().getId()));
-
-        Map<Long, List<ExpenseSplit>> splitsByExpense =
-                splits.stream().collect(Collectors.groupingBy(es -> es.getExpense().getId()));
-
-        DateTimeFormatter dateFmt = DateTimeFormatter.ISO_LOCAL_DATE;
-
-        return expenses.stream().map(e -> {
-            List<PaidByDto> paidBy = payersByExpense
-                    .getOrDefault(e.getId(), List.of())
-                    .stream()
-                    .map(ep -> new PaidByDto(ep.getUser().getId(), ep.getAmountPaid()))
-                    .toList();
-
-            // For each split user, find how much they paid (if any) and compute owes
             Map<Long, Double> paidMap = paidBy.stream()
-                    .collect(Collectors.toMap(PaidByDto::getUserId, PaidByDto::getAmount));
+                .collect(Collectors.toMap(PaidByDto::getUserId, PaidByDto::getAmount));
 
-            List<ExpenseShareDto> splitAmong = splitsByExpense
-                    .getOrDefault(e.getId(), List.of())
-                    .stream()
-                    .map(es -> {
-                        Long userId = es.getUser().getId();
-                        double share = es.getAmountOwed();
-                        double paid = paidMap.getOrDefault(userId, 0.0);
-                        double owes = Math.max(share - paid, 0.0);
-                        return new ExpenseShareDto(userId, share, paid, owes);
-                    })
-                    .toList();
+            List<ExpenseShareDto> splitAmong = expense.getSplits().stream()
+                .map(split -> {
+                    Long userId = split.getUser().getId();
+                    double share = split.getAmountOwed();
+                    double paid = paidMap.getOrDefault(userId, 0.0);
+                    double owes = Math.max(share - paid, 0.0);
+                    return new ExpenseShareDto(userId, share, paid, owes);
+                })
+                .collect(Collectors.toList());
 
             return new ExpenseDto(
-                    e.getId(),
-                    e.getTitle(),                      // or e.getDescription() if no title field
-                    e.getDescription(),
-                    e.getPaidAt().toLocalDate().format(dateFmt),
-                    e.getTotalAmount(),
-                    paidBy,
-                    splitAmong
+                expense.getId(),
+                expense.getTitle(),
+                expense.getDescription(),
+                expense.getPaidAt().toLocalDate().format(formatter),
+                expense.getTotalAmount(),
+                paidBy,
+                splitAmong
             );
-        }).toList();
+        }).collect(Collectors.toList());
     }
-    private List<SettlementDto> mapSettlements(Group group) {
-        List<Settlement> settlements =
-                settlementRepository.findByGroupIdOrderBySettledAtDesc(group.getId());
 
-        return settlements.stream()
-                .map(this::toSettlementDto)
-                .collect(Collectors.toList());
-    }
-    private SettlementDto toSettlementDto(Settlement s) {
-        return new SettlementDto(
+    private List<SettlementDto> getSettlements(Long groupId) {
+        return settlementRepository.findByGroupIdOrderBySettledAtDesc(groupId).stream()
+            .map(s -> new SettlementDto(
                 s.getId(),
                 s.getSettledAt().toLocalDate(),
                 new UserRefDto(s.getFromUser().getId(), s.getFromUser().getName()),
                 new UserRefDto(s.getToUser().getId(), s.getToUser().getName()),
                 s.getAmount().doubleValue(),
                 s.getDescription()
-        );
+            ))
+            .collect(Collectors.toList());
     }
 }

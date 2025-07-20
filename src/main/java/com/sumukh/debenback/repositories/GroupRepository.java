@@ -20,7 +20,9 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
 SELECT u.id AS user_id,
        u.name AS name,
        COALESCE(SUM(p.amount_paid),0) AS total_paid,
-       COALESCE(SUM(s.amount_owed),0) - COALESCE(SUM(st_paid.amount),0) + COALESCE(SUM(st_received.amount),0) AS total_share
+       COALESCE(SUM(s.amount_owed),0) AS total_share,
+       COALESCE(SUM(st_paid.amount),0) AS settlements_paid,
+       COALESCE(SUM(st_received.amount),0) AS settlements_received
 FROM group_members gm
 JOIN users u ON u.id = gm.user_id
 LEFT JOIN expenses e ON e.group_id = gm.group_id

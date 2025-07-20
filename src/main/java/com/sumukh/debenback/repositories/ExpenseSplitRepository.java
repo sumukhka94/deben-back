@@ -10,4 +10,7 @@ import java.util.List;
 public interface ExpenseSplitRepository extends JpaRepository<ExpenseSplit, Long> {
     @Query("SELECT es FROM ExpenseSplit es WHERE es.expense.id IN :ids")
     List<ExpenseSplit> findSplitsByExpenseIds(@Param("ids") List<Long> expenseIds);
+    
+    @Query("SELECT es FROM ExpenseSplit es WHERE es.expense.group.id = :groupId")
+    List<ExpenseSplit> findByGroupId(@Param("groupId") Long groupId);
 }

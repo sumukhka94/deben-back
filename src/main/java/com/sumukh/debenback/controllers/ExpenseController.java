@@ -6,6 +6,7 @@ import com.sumukh.debenback.entities.Expense;
 import com.sumukh.debenback.entities.Settlement;
 import com.sumukh.debenback.services.ExpenseService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,18 +19,30 @@ public class ExpenseController {
     private final ExpenseService expenseService;
     
     @PostMapping
-    public ResponseEntity<Expense> addExpense(
+    public ResponseEntity<?> addExpense(
             @PathVariable Long groupId,
             @RequestBody CreateExpenseRequest request) {
-        Expense expense = expenseService.addExpense(groupId, request);
-        return ResponseEntity.ok(expense);
+        try {
+            Expense expense = expenseService.addExpense(groupId, request);
+            return ResponseEntity.ok(expense);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+        }
     }
     
     @PostMapping("/settlements")
-    public ResponseEntity<Settlement> recordSettlement(
+    public ResponseEntity<?> recordSettlement(
             @PathVariable Long groupId,
             @RequestBody CreateSettlementRequest request) {
-        Settlement settlement = expenseService.recordSettlement(groupId, request);
-        return ResponseEntity.ok(settlement);
+        try {
+            Settlement settlement = expenseService.recordSettlement(groupId, request);
+            return ResponseEntity.ok(settlement);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+        }
     }
 }
