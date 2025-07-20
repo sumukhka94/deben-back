@@ -34,7 +34,7 @@ public class GroupDetailService {
 
     private List<MemberBalanceDto> calculateBalances(Group group) {
         Map<Long, String> memberNames = group.getMembers().stream()
-            .collect(Collectors.toMap(User::getId, User::getName));
+            .collect(Collectors.toMap(User::getId, User::getName, (existing, replacement) -> existing));
         
         Map<Long, Double> balances = new HashMap<>();
         memberNames.keySet().forEach(id -> balances.put(id, 0.0));
